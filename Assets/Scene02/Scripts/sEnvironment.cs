@@ -113,7 +113,7 @@ public class sEnvironment : MonoBehaviour {
             }
         }
 
-        // Клавиша alt+c - очистить кэш MapBox
+        // Клавиша ctrl+c - очистить кэш MapBox
         else if (Input.GetKeyDown("c"))
         {
             if (Input.GetKey("left ctrl") || Input.GetKey("right ctrl"))

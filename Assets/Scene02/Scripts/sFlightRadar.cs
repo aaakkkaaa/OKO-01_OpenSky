@@ -5,6 +5,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Threading;
 using System.Text;
+using System.Globalization;
 using UnityEngine;
 using UnityEngine.Networking;
 using UnityEngine.UI;
@@ -86,6 +87,8 @@ public class sFlightRadar : MonoBehaviour {
     Transform mySamplePlane;
     // Трансформ группового объекта самолетов
     Transform myPlanesController;
+    // Трансформы шаблонов путевых точек
+    Transform[] myTrackPoint = new Transform[4];
 
     // Данные, которые будет определять MapBox (исправления в коде Sc02MapAtWorldScaleAndSpecificLocation.cs)
     [HideInInspector]
@@ -282,6 +285,11 @@ public class sFlightRadar : MonoBehaviour {
         public Vector3 Euler;
         public Vector3 Speed;
         public long Time;
+        public bool NeedNewBezier;
+        public Vector3 StartBezier;
+        public Transform[] TrackPoints;
+        public long TrackTime; // Время полета по путевым точкам
+        public long TargetTime; // Время прихода в конечную целевую точку
     }
 
     // Словарь - данные для отображения самолетов. Ключ - HEX код ICAO, значения - структура
@@ -331,6 +339,7 @@ public class sFlightRadar : MonoBehaviour {
 
     // Use this for initialization
     void Start () {
+
 
         // ********************** Запись в файл отладочных данных ********************************************
 
@@ -394,6 +403,13 @@ public class sFlightRadar : MonoBehaviour {
         // Трансформ шаблона самолетов - получить указатель и сразу спрятать
         mySamplePlane = GameObject.Find("SamplePlane").transform;
         mySamplePlane.gameObject.SetActive(false);
+
+        // Трансформы группы путевых точек - получить указатели и сразу спрятать
+        for (int i = 0; i < 4; i++)
+        {
+            myTrackPoint[i] = GameObject.Find("TraсkPointers/Point_" + i).transform;
+            myTrackPoint[i].gameObject.SetActive(false);
+        }
 
         // Трансформ группового объекта самолетов
         myPlanesController = GameObject.Find("PlanesController").transform;
@@ -591,7 +607,7 @@ public class sFlightRadar : MonoBehaviour {
         if (myWriteLog)
         {
             myCurrentTime = (int)(myStopWatch.ElapsedMilliseconds - myStartTime);
-            myRecFile[myRecName].WriteLine(myInfo + " CurrentTime = " + myCurrentTime);
+            myRecFile[myRecName].WriteLine(myInfo.Replace(".",",") + " CurrentTime = " + myCurrentTime);
         }
     }
 
@@ -603,11 +619,11 @@ public class sFlightRadar : MonoBehaviour {
             if (myTime)
             {
                 myCurrentTime = (int)(myStopWatch.ElapsedMilliseconds - myStartTime);
-                myRecFile[myRecName].WriteLine(myInfo + " CurrentTime = " + myCurrentTime);
+                myRecFile[myRecName].WriteLine(myInfo.Replace(".", ",") + " CurrentTime = " + myCurrentTime);
             }
             else
             {
-                myRecFile[myRecName].WriteLine(myInfo);
+                myRecFile[myRecName].WriteLine(myInfo.Replace(".", ","));
             }
         }
     }
@@ -617,7 +633,7 @@ public class sFlightRadar : MonoBehaviour {
     {
         if (myWriteLog)
         {
-            myRecFile["Main"].WriteLine(myInfo);
+            myRecFile["Main"].WriteLine(myInfo.Replace(".", ","));
         }
     }
 
@@ -627,8 +643,8 @@ public class sFlightRadar : MonoBehaviour {
         if (myWriteLog)
         {
             myCurrentTime = (int)(myStopWatch.ElapsedMilliseconds - myStartTime);
-            myRecFile[myRecName1].WriteLine(myInfo + " CurrentTime = " + myCurrentTime);
-            myRecFile[myRecName2].WriteLine(myInfo + " CurrentTime = " + myCurrentTime);
+            myRecFile[myRecName1].WriteLine(myInfo.Replace(".", ",") + " CurrentTime = " + myCurrentTime);
+            myRecFile[myRecName2].WriteLine(myInfo.Replace(".", ",") + " CurrentTime = " + myCurrentTime);
         }
     }
 
@@ -716,8 +732,8 @@ public class sFlightRadar : MonoBehaviour {
             else
             {
                 // Ждем заверешения вторичной обработки данных в корутине myFuncProcData()
-                MyLog("RawData", "ProcData", "**********************************************************************");
                 MyLog("RawData", "ProcData", "=== myFuncThread(): Ждем заверешения вторичной обработки данных в корутине myFuncProcData()");
+                MyLog("RawData", "ProcData", "--------------------------------------------------------");
                 while (mySecondaryDataProc)
                 {
                     Thread.Sleep(20);
@@ -1005,6 +1021,8 @@ public class sFlightRadar : MonoBehaviour {
                     myPlane.Call = myOnePlanePars.callsign; // Позывной
                     myPlane.Icao = myOnePlanePars.icao24; // HEX код ICAO (ADS-B Mode-S код)
                     myPlane.Time = myStartProcTime; // Время последней порции данных
+                    myPlane.TargetTime = myStartProcTime + myLag; // Целевое время для полета к последней исзвестной точке.
+                    myPlane.NeedNewBezier = true; // Требуется определить новые путевые точки для полета по Безье. Выполняется в Update().
 
                     // Высота в футах. На самом деле разборка должна быть более сложная, с учетом GAlt и AltT, а также, возможно, InHG
                     MyLog("ProcData", "=== myFuncThread(): " + i + " ключ = " + myKey + " myOnePlanePars.on_ground = " + myOnePlanePars.on_ground + " myOnePlanePars.baro_altitude = " + myOnePlanePars.baro_altitude + " myOnePlanePars.geo_altitude = " + myOnePlanePars.geo_altitude);
@@ -1221,6 +1239,8 @@ public class sFlightRadar : MonoBehaviour {
                         myPlane.Banner1Alt = myPlaneVis[myKey].Banner1Alt;
                         myPlane.Banner1Panel = myPlaneVis[myKey].Banner1Panel;
                         myPlane.Model = myPlaneVis[myKey].Model;
+                        myPlane.TrackPoints = myPlaneVis[myKey].TrackPoints;
+                        myPlane.StartBezier = myPlaneVis[myKey].StartBezier;
                         myPlaneVis[myKey] = myPlane; // Обновим малую структуру в словаре myPlaneVis
                         // Пополним историю самолета
                         // Извлечем из словаря структуру с историей
@@ -1254,10 +1274,10 @@ public class sFlightRadar : MonoBehaviour {
                         for (int j = 0; j < myOnePlaneHist.Time.Count; j++)
                         {
                             String myLine = myOnePlaneHist.Time[j] + "\t" + myOnePlaneHist.PosTime[j] + "\t" + myOnePlaneHist.PredictionReason[j] + "\t" + myOnePlaneHist.BadPosCounter[j] + "\t" +
-                                myOnePlaneHist.Position[j].x + "\t" + myOnePlaneHist.Position[j].y + "\t" + myOnePlaneHist.Position[j].z + "\t" +
-                                myOnePlaneHist.RawPosition[j].x + "\t" + myOnePlaneHist.RawPosition[j].y + "\t" + myOnePlaneHist.RawPosition[j].z + "\t" +
-                                myOnePlaneHist.Euler[j].x + "\t" + myOnePlaneHist.Euler[j].y + "\t" + myOnePlaneHist.Euler[j].z + "\t" +
-                                myOnePlaneHist.Speed[j].x + "\t" + myOnePlaneHist.Speed[j].y + "\t" + myOnePlaneHist.Speed[j].z;
+                                myOnePlaneHist.Position[j].x.ToString(CultureInfo.GetCultureInfo("ru-RU")) + "\t" + myOnePlaneHist.Position[j].y.ToString(CultureInfo.GetCultureInfo("ru-RU")) + "\t" + myOnePlaneHist.Position[j].z.ToString(CultureInfo.GetCultureInfo("ru-RU")) + "\t" +
+                                myOnePlaneHist.RawPosition[j].x.ToString(CultureInfo.GetCultureInfo("ru-RU")) + "\t" + myOnePlaneHist.RawPosition[j].y.ToString(CultureInfo.GetCultureInfo("ru-RU")) + "\t" + myOnePlaneHist.RawPosition[j].z.ToString(CultureInfo.GetCultureInfo("ru-RU")) + "\t" +
+                                myOnePlaneHist.Euler[j].x.ToString(CultureInfo.GetCultureInfo("ru-RU")) + "\t" + myOnePlaneHist.Euler[j].y.ToString(CultureInfo.GetCultureInfo("ru-RU")) + "\t" + myOnePlaneHist.Euler[j].z.ToString(CultureInfo.GetCultureInfo("ru-RU")) + "\t" +
+                                myOnePlaneHist.Speed[j].x.ToString(CultureInfo.GetCultureInfo("ru-RU")) + "\t" + myOnePlaneHist.Speed[j].y.ToString(CultureInfo.GetCultureInfo("ru-RU")) + "\t" + myOnePlaneHist.Speed[j].z.ToString(CultureInfo.GetCultureInfo("ru-RU"));
                             MyLog(myKey, myLine, false);
                         }
                     }
@@ -1304,6 +1324,9 @@ public class sFlightRadar : MonoBehaviour {
                             myPlane.PredictionReason = "NoData";
                         }
 
+                        // Требуется определить новые путевые точки для полета по Безье. Выполняется в Update().
+                        myPlane.NeedNewBezier = true;
+
                         // Обновим малую структуру в словаре myPlaneVis
                         myPlaneVis[myKey] = myPlane;
 
@@ -1337,10 +1360,10 @@ public class sFlightRadar : MonoBehaviour {
                         for (int j = 0; j < myOnePlaneHist.Time.Count; j++)
                         {
                             String myLine = myOnePlaneHist.Time[j] + "\t" + myOnePlaneHist.PosTime[j] + "\t" + myOnePlaneHist.PredictionReason[j] + "\t" + myOnePlaneHist.BadPosCounter[j] + "\t" +
-                                myOnePlaneHist.Position[j].x + "\t" + myOnePlaneHist.Position[j].y + "\t" + myOnePlaneHist.Position[j].z + "\t" +
-                                myOnePlaneHist.RawPosition[j].x + "\t" + myOnePlaneHist.RawPosition[j].y + "\t" + myOnePlaneHist.RawPosition[j].z + "\t" +
-                                myOnePlaneHist.Euler[j].x + "\t" + myOnePlaneHist.Euler[j].y + "\t" + myOnePlaneHist.Euler[j].z + "\t" +
-                                myOnePlaneHist.Speed[j].x + "\t" + myOnePlaneHist.Speed[j].y + "\t" + myOnePlaneHist.Speed[j].z;
+                                myOnePlaneHist.Position[j].x.ToString(CultureInfo.GetCultureInfo("ru-RU")) + "\t" + myOnePlaneHist.Position[j].y.ToString(CultureInfo.GetCultureInfo("ru-RU")) + "\t" + myOnePlaneHist.Position[j].z.ToString(CultureInfo.GetCultureInfo("ru-RU")) + "\t" +
+                                myOnePlaneHist.RawPosition[j].x.ToString(CultureInfo.GetCultureInfo("ru-RU")) + "\t" + myOnePlaneHist.RawPosition[j].y.ToString(CultureInfo.GetCultureInfo("ru-RU")) + "\t" + myOnePlaneHist.RawPosition[j].z.ToString(CultureInfo.GetCultureInfo("ru-RU")) + "\t" +
+                                myOnePlaneHist.Euler[j].x.ToString(CultureInfo.GetCultureInfo("ru-RU")) + "\t" + myOnePlaneHist.Euler[j].y.ToString(CultureInfo.GetCultureInfo("ru-RU")) + "\t" + myOnePlaneHist.Euler[j].z.ToString(CultureInfo.GetCultureInfo("ru-RU")) + "\t" +
+                                myOnePlaneHist.Speed[j].x.ToString(CultureInfo.GetCultureInfo("ru-RU")) + "\t" + myOnePlaneHist.Speed[j].y.ToString(CultureInfo.GetCultureInfo("ru-RU")) + "\t" + myOnePlaneHist.Speed[j].z.ToString(CultureInfo.GetCultureInfo("ru-RU"));
                             MyLog(myKey, myLine, false);
                         }
                     }
@@ -1368,8 +1391,8 @@ public class sFlightRadar : MonoBehaviour {
             //MyLog("**********************************************************************");
 
             // Ждем заверешения первичной обработки данных  в потоке
-            MyLog("RawData", "ProcData", "--------------------------------------------------------");
-            MyLog("RawData", "ProcData", "%%% myFuncProcData(): Начинаем ждать первичную обработку данных");
+            MyLog("RawData", "ProcData", "%%% myFuncProcData(): Начинаем ждать выполнения первичной обработки данных");
+            MyLog("RawData", "ProcData", "**********************************************************************");
             long myStartWaitTime = myStopWatch.ElapsedMilliseconds - myStartTime;
             while (myPrimaryDataProc)
             {
@@ -1394,7 +1417,9 @@ public class sFlightRadar : MonoBehaviour {
                 bool myPlaneLanded = false;
 
                 // Извлечем структуры из словарей
-                MyPlaneVisual myPlane = myPlaneVis[myKeys[i]];
+                MyPlaneVisual myPlane = myPlaneVis[myKeys[i]]; // параметры полета данного самолета
+                MyFlightHistory myOnePlaneHist = myPlanesHistory[myKeys[i]]; // история данного самолета
+                int myPlaneHistCount = myOnePlaneHist.Time.Count; // число записей в истории данного самолета
                 //myPlaneParameters myOnePlanePars = myAllPlanesPars[myKeys[i]];
 
                 // Добавим новый самолет и уточним его запись в словаре myPlaneVis (добавим указатели на созданные объекты)
@@ -1408,6 +1433,18 @@ public class sFlightRadar : MonoBehaviour {
                     myNewPlane.parent = myPlanesController;
                     // Указатель на вновь созданный Game Object
                     myPlane.GO = myNewPlane.gameObject;
+
+                    // Указатели путевых точек
+                    Transform[] myTP = new Transform[4];
+                    for (int j = 0; j < 4; j++)
+                    {
+                        myTP[j] = Instantiate(myTrackPoint[j]);
+                        myTP[j].name = myKeys[i] + "_Point_" + j;
+                        myTP[j].parent = myTrackPoint[j].parent;
+                        myTP[j].gameObject.SetActive(true);
+                    }
+                    myPlane.TrackPoints = myTP;
+
                     Transform myObjTr1 = myPlane.GO.transform.GetChild(0); // дочерний объект пока один
                     // Это канвас баннера с краткой информацией
                     myPlane.Banner1 = myObjTr1;
@@ -1493,7 +1530,7 @@ public class sFlightRadar : MonoBehaviour {
                         }
                         else
                         {
-                            myAirlineName = ""; // Если не знаем такую автакомпанию, то обозначение тоже пусть будет ""
+                            myAirlineName = ""; // Если не знаем такую авиакомпанию, то обозначение тоже пусть будет ""
                         }
                     }
 
@@ -1540,7 +1577,14 @@ public class sFlightRadar : MonoBehaviour {
                     MyLog("ProcData", "%%% myFuncProcData(): Установим положение самолета");
                     myPlane.GO.transform.position = myPlane.Position;
                     myPlane.GO.transform.eulerAngles = myPlane.Euler;
-                    myPlaneVis[myKeys[i]] = myPlane; // Уточним малую структуру в словаре
+
+                    //// Первая путевая точка для полета по Безье
+                    //myPlane.StartBezier = myPlane.Position;
+                    //myPlane.GetStartBezier = false;
+                    //MyLog(myKeys[i], "ProcData", "%%% myFuncProcData(): ключ = " + myKeys[i] + " Новый самолет. Первая путевая точка для полета по Безье = " + myPlane.StartBezier);
+
+                    // Уточним малую структуру в словаре
+                    myPlaneVis[myKeys[i]] = myPlane;
                 }
                 // Удалим устаревший самолет и его записи во всех словарях. Также удалим самолет, если он "приземлися"
                 else if (((myResponseTime - myPlane.Time) > 15000))
@@ -1551,10 +1595,8 @@ public class sFlightRadar : MonoBehaviour {
                 else
                 {
                     // Проверим высоту по истории в последних точках. Если везде 0, то значит самолет приземлился
-                    MyFlightHistory myOnePlaneHist = myPlanesHistory[myKeys[i]]; // история данного самолета
-                    int myNum = myOnePlaneHist.Time.Count;
-                    MyLog("ProcData", "%%% myFuncProcData(): Будем проверять, не сел ли самолет. Записей в истории всего " + myNum);
-                    if (myNum < 3) // Недостаточно длинная история
+                    MyLog("ProcData", "%%% myFuncProcData(): Будем проверять, не сел ли самолет. Записей в истории всего " + myPlaneHistCount);
+                    if (myPlaneHistCount < 3) // Недостаточно длинная история
                     {
                         MyLog("ProcData", "%%% myFuncProcData(): Записей недостаточно. По этому критерию - не сел");
                         myPlaneLanded = false;
@@ -1562,11 +1604,11 @@ public class sFlightRadar : MonoBehaviour {
                     else
                     {
                         myPlaneLanded = true;
-                        for (int j = Mathf.Min(myNum, 7); j > 0; j--) // Здесь устанавливаем количество проверяемых точек
+                        for (int j = Mathf.Min(myPlaneHistCount, 7); j > 0; j--) // Здесь устанавливаем количество проверяемых точек
                         {
-                            MyLog("ProcData", "%%% myFuncProcData(): Проверяем. Запись номер " + (myNum - j) + ": Высота = " + myOnePlaneHist.Position[myNum - j].y);
+                            MyLog("ProcData", "%%% myFuncProcData(): Проверяем. Запись номер " + (myPlaneHistCount - j) + ": Высота = " + myOnePlaneHist.Position[myPlaneHistCount - j].y);
                             // Проверяем. Если высота хоть в одной точке больше 0 - значит не приземлился
-                            if (myOnePlaneHist.Position[myNum - j].y > 0.0f)
+                            if (myOnePlaneHist.Position[myPlaneHistCount - j].y > 0.0f)
                             {
                                 myPlaneLanded = false;
                                 break;
@@ -1604,6 +1646,13 @@ public class sFlightRadar : MonoBehaviour {
                         }
                     }
                     Destroy(myPlane.GO);
+                    // Указатели путевых точек
+                    for (int j = 0; j < 4; j++)
+                    {
+                        Destroy(myPlane.TrackPoints[j].gameObject);
+                    }
+
+
 
                     // Закроем лог-файлы и удалим записи из словаря лог-файлов
                     myRecFile[myKeys[i]].Close();
@@ -1631,6 +1680,12 @@ public class sFlightRadar : MonoBehaviour {
                         mySlowPlanes.Add(myKeys[i], false); // Добавим самолет в словарь медленных
                         mySlowPlanesCount = mySlowPlanes.Count; // Поправим счетчик медленных самолетов
                         myPlane.GO.SetActive(false); // Прячем самолет
+                                                     // Указатели путевых точек
+                        for (int j = 0; j < 4; j++)
+                        {
+                            myPlane.TrackPoints[j].gameObject.SetActive(false);
+                        }
+
                     }
                     else if (!myLowSpeedDetected && myPlaneAlreadyHasLowSpeed) // Обнаружена высокая скорость (ранее была низкая)
                     {
@@ -1638,6 +1693,11 @@ public class sFlightRadar : MonoBehaviour {
                         mySlowPlanes.Remove(myKeys[i]); // Удалим самолет из словаря медленных
                         mySlowPlanesCount = mySlowPlanes.Count; // Поправим счетчик медленных самолетов
                         myPlane.GO.SetActive(true); // Показываем самолет
+                                                    // Указатели путевых точек
+                        for (int j = 0; j < 4; j++)
+                        {
+                            myPlane.TrackPoints[j].gameObject.SetActive(true);
+                        }
                     }
                     else  // Скорость высокая, как и была раньше
                     {
@@ -1656,7 +1716,7 @@ public class sFlightRadar : MonoBehaviour {
                     myPlane.Banner1Call.text = "." + myPlane.Call;
                 }
 
-                yield return new WaitForEndOfFrame();
+               yield return new WaitForEndOfFrame();
             }
 
             // Отчитаемся о результатах
@@ -1666,12 +1726,12 @@ public class sFlightRadar : MonoBehaviour {
             long myCurTime = myStopWatch.ElapsedMilliseconds - myStartTime;
             long myWorkTime = myCurTime - myStartProcTime2; // Время myStartProcTime2 равно myStartProcTime, за искоючением случая, когда новые данные не поступили, но прогноз еще не строим.
             MyLog("ProcData", "%%% myFuncProcData(): Всего самолетов в словарях: Большая структура = " + myAllPlanesPars.Count + ", малая структура =  " + myKeys.Count + ", из них скрытых (медленных) = " + mySlowPlanesCount);
-            MyLog("RawData", "ProcData", "**********************************************************************");
             MyLog("RawData", "ProcData", "%%% myFuncProcData(): Завершение вторичной обработки. Время вторичной обработки = " + (myCurTime - mySecondProcStartTime) + " Время всей обработки = " + myWorkTime);
 
 
             // Переждать до конца рекомендованного времени цикла, секунд (если обработка заняла времени меньше)
             float myWaitTime = Mathf.Max(0.0f, (myProcCycleTime - myWorkTime / 1000.0f));
+            MyLog("RawData", "ProcData", "%%% myFuncProcData(): Переждем еще " + myWaitTime + " секунд.");
             yield return new WaitForSeconds(myWaitTime);
             MyLog("RawData", "ProcData", "%%% myFuncProcData(): Переждали еще секунд: " + myWaitTime + " Разрешаю начать новый цикл обработки");
 
@@ -1837,7 +1897,7 @@ public class sFlightRadar : MonoBehaviour {
             // Текущее время сеанса
             long myCurTime = myStopWatch.ElapsedMilliseconds - myStartTime;
             // Время, оставшееся до момента, в котором мы собираемся привести самолет в очередную точку траектории
-            long myLeftToTargetTime = myStartProcTime + myLag - myCurTime;
+            //long myLeftToTargetTime = myStartProcTime + myLag - myCurTime;
 
             // Отладка
             myFrameCount++; //
@@ -1847,7 +1907,7 @@ public class sFlightRadar : MonoBehaviour {
             if(myLogFrameCount++ > 8)
             {
                 myWriteLog = true;
-                MyLog("Update", "===================== Frame=" + myFrameCount + " LogFrame=" + myLogFrameCount + " Time=" + myCurTime + " LeftToTargetTime=" + myLeftToTargetTime);
+                MyLog("Update", "===================== Frame=" + myFrameCount + " LogFrame=" + myLogFrameCount + " Time=" + myCurTime);
                 myLogFrameCount = 0;
             }
 
@@ -1857,7 +1917,11 @@ public class sFlightRadar : MonoBehaviour {
             // Двигаем самолеты
             foreach (String myKey in myKeys)
             {
-                MyPlaneVisual myPlane = myPlaneVis[myKey];
+                MyPlaneVisual myPlane = myPlaneVis[myKey]; // текущие параметры полета (малая структура)
+                MyFlightHistory myOnePlaneHist = myPlanesHistory[myKey]; // история данного самолета
+                int myPlaneHistCount = myOnePlaneHist.Time.Count; // число точек в истории
+                long myLeftToTargetTime = myPlane.TargetTime - myCurTime; // сколько времени до прихода в последнюю путевую точку
+
                 if (myPlane.GO)
                 {
 
@@ -1873,18 +1937,72 @@ public class sFlightRadar : MonoBehaviour {
                     //myPlane.GO.transform.position = myPlane.GO.transform.position + myPlane.Speed * Time.deltaTime;
 
                     Vector3 myPos = myPlane.GO.transform.position;
+                    Vector3 myNewPos;
                     Vector3 myEu = myPlane.GO.transform.eulerAngles;
+                    Vector3 myNewEu;
                     if (myLeftToTargetTime > 0)
                     {
-                        myPos = myPos + (myPlane.Position - myPos) * Time.deltaTime * 1000 / myLeftToTargetTime;
-                        if (myPos.y < 0)
+                        // Расчет новой точки на траектории
+
+                        // Положение
+                        if (myPlaneHistCount < 4) // если в истории меньше четырех точек - линейная интерполяция
                         {
-                            myPos.y = 0;
+                            myNewPos = myPos + (myPlane.Position - myPos) * Time.deltaTime * 1000 / myLeftToTargetTime;
+                        }
+                        else
+                        {
+                            if (myPlane.NeedNewBezier)
+                            {
+                                MyLog(myKey + "_Data", "===================== Frame=" + myFrameCount + " Новая первая путевая точка для полета по Безье = " + myPlane.StartBezier);
+                                myPlane.StartBezier = myPos;
+                                myPlane.TargetTime = myStartProcTime + myLag;
+                                myPlane.TrackTime = myPlane.TargetTime + myStartTime - myStopWatch.ElapsedMilliseconds;
+                                myLeftToTargetTime = myPlane.TrackTime;
+                                myPlane.NeedNewBezier = false;
+                                myPlaneVis[myKey] = myPlane; // Уточним малую структуру в словаре
+
+
+                                MyLog(myKey + "_Data", "Frame\tCurTime\tRealTime\tStartProcTime\tTargetTime\tTrackTime", false);
+                                String myLine = myFrameCount + "\t" + myCurTime + "\t" + (myStopWatch.ElapsedMilliseconds - myStartTime) + "\t" + 
+                                    myStartProcTime + "\t" + myPlane.TargetTime + "\t" + myPlane.TrackTime;
+                                MyLog(myKey + "_Data", myLine, false);
+                                //MyLog(myKey + "_Data", "Положение самолета:" + myPlane.GO.transform.position + " myPos = " + myPos + " myPlane.StartBezier = " + myPlane.StartBezier + " myPlaneVis[myKey].StartBezier = " + myPlaneVis[myKey].StartBezier, false);
+
+                                // Расставим указатели путевых точек для полета по Безье
+                                myPlane.TrackPoints[0].position = myPlane.StartBezier;
+                                for (int j = 0; j < 3; j++)
+                                {
+                                    myPlane.TrackPoints[j + 1].position = myOnePlaneHist.Position[myPlaneHistCount - 3 + j];
+                                }
+                                MyLog(myKey + "_Data", "Точка\tPosX\tPosY\tPosZ", false);
+                                for (int j = 0; j < 4; j++)
+                                {
+                                    myLine = j + "\t" + myPlane.TrackPoints[j].position.x + "\t" + myPlane.TrackPoints[j].position.y + "\t" + myPlane.TrackPoints[j].position.z;
+                                    MyLog(myKey + "_Data", myLine, false);
+                                }
+                            }
+
+                            float myTim = 1.0f - (float)myLeftToTargetTime / myPlane.TrackTime;
+                            myNewPos = (1.0f - myTim) * (1.0f - myTim) * (1.0f - myTim) * myPlane.TrackPoints[0].position
+                                + 3.0f * myTim * (1.0f - myTim) * (1.0f - myTim) * myPlane.TrackPoints[1].position
+                                + 3.0f * myTim * myTim * (1.0f - myTim) * myPlane.TrackPoints[2].position
+                                + myTim * myTim * myTim * myPlane.TrackPoints[3].position;
+
+                            MyLog(myKey + "_Data", "myTim = " + myTim + " myLeftToTargetTime = " + myLeftToTargetTime + " myPlane.TrackTime = " + myPlane.TrackTime);
+                        }
+                        MyLog(myKey + "_Data", "myPlane.position = " + myPlane.GO.transform.position);
+
+
+
+                        if (myNewPos.y < 0)
+                        {
+                            myNewPos.y = 0;
                         }
 
                         // Поставим самолет в новую точку на траектории
-                        myPlane.GO.transform.position = myPos;
+                        myPlane.GO.transform.position = myNewPos;
 
+                        // Угол
                         Vector3 myDeltaEu = (myPlane.Euler - myEu); // угол, на который нужно будет повернуть к концу периода
 
                         // Отладка
@@ -1913,11 +2031,40 @@ public class sFlightRadar : MonoBehaviour {
 
                         myPlane.GO.transform.eulerAngles = myEu + myDeltaEu * Time.deltaTime * 1000 / myLeftToTargetTime;
 
-                        // Отладка
-                        if (myWriteLog)
+                        //// Отладка
+                        //if (myWriteLog)
+                        //{
+                        //    MyLog("Update", "Plane=" + myKey + " OldEu=" + myEu.y + " TargetEu=" + myPlane.Euler.y + " DeltaEu=" + myDeltaY + " DeltaEuNorm=" + myDeltaEu.y + " NewEu=" + myPlane.GO.transform.eulerAngles.y);
+                        //}
+
+                        if (myPlaneHistCount >= 4) // если в истории больше четырех точек, то угол рыскания заменим, исходя из траектории по Безье
                         {
-                            MyLog("Update", "Plane=" + myKey + " OldEu=" + myEu.y + " TargetEu=" + myPlane.Euler.y + " DeltaEu=" + myDeltaY + " DeltaEuNorm=" + myDeltaEu.y + " NewEu=" + myPlane.GO.transform.eulerAngles.y);
-                        } //
+                            myNewEu = myPlane.GO.transform.eulerAngles;
+                            float myDeltaX = myNewPos.x - myPos.x;
+                            float myDeltaZ = myNewPos.z - myPos.z;
+                            if (myDeltaX < 0.001f && myDeltaZ < 0.001f)
+                            {
+                                myNewEu.y = myPlane.GO.transform.eulerAngles.y;
+                            }
+                            else if (myDeltaZ == 0.0f)
+                            {
+                                myNewEu.y = 90.0f * Mathf.Sign(myDeltaX);
+                            }
+                            else if (myDeltaX == 0.0f)
+                            {
+                                myNewEu.y = 90.0f - 90.0f * Mathf.Sign(myDeltaZ);
+                            }
+                            else
+                            {
+                                myNewEu.y = Mathf.Rad2Deg * (Mathf.Atan(myDeltaX / myDeltaZ));
+                                if (Mathf.Sign(myDeltaZ) == -1)
+                                {
+                                    myNewEu.y = myNewEu.y + 180 * Mathf.Sign(myDeltaX);
+                                }
+                            }
+                            myPlane.GO.transform.eulerAngles = myNewEu;
+                            MyLog(myKey + "_Data", "myDeltaX = " + myDeltaX + " myDeltaZ = " + myDeltaZ + " Yaw = " + myNewEu.y);
+                        }
                     }
 
                     // Масштабирование модели самолета при приближении к земле
@@ -1971,7 +2118,7 @@ public class sFlightRadar : MonoBehaviour {
                     myBanner2Fields["Speed"].text = "Speed(kn)=" + Math.Round(mySelectedPlaneBigPars.velocity * 3.6f * myKnot, 2).ToString("####0.0"); // Скорость в узлах
                     myBanner2Fields["VSpd"].text = "VSpeed(ft/min)=" + Math.Round(mySelectedPlaneSmallPars.Speed.y/myFeet*60, 0).ToString(); // Вертикальная скорость в фут/мин
                 }
-                myBanner2Fields["Trak"].text = "Track=" + Math.Round(mySelectedPlaneBigPars.true_track, 2).ToString("####0.0") + "°"; // Курс самолета в градусах
+                myBanner2Fields["Trak"].text = "Trak=" + Math.Round(mySelectedPlaneBigPars.true_track, 2).ToString("####0.0") + "°"; // Курс самолета в градусах
             }
         }
     }
