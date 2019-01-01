@@ -88,7 +88,7 @@ public class sFlightRadar : MonoBehaviour {
     // Трансформ группового объекта самолетов
     Transform myPlanesController;
     // Трансформы шаблонов путевых точек
-    Transform[] myTrackPoint = new Transform[4];
+    Transform[] myTrackPoint = new Transform[5];
 
     // Данные, которые будет определять MapBox (исправления в коде Sc02MapAtWorldScaleAndSpecificLocation.cs)
     [HideInInspector]
@@ -290,6 +290,7 @@ public class sFlightRadar : MonoBehaviour {
         public Transform[] TrackPoints;
         public long TrackTime; // Время полета по путевым точкам
         public long TargetTime; // Время прихода в конечную целевую точку
+        public long PrevTargetTime; // Время прихода в конечную целевую точку для предыдущего цикла обработки
     }
 
     // Словарь - данные для отображения самолетов. Ключ - HEX код ICAO, значения - структура
@@ -405,7 +406,7 @@ public class sFlightRadar : MonoBehaviour {
         mySamplePlane.gameObject.SetActive(false);
 
         // Трансформы группы путевых точек - получить указатели и сразу спрятать
-        for (int i = 0; i < 4; i++)
+        for (int i = 0; i < 5; i++)
         {
             myTrackPoint[i] = GameObject.Find("TraсkPointers/Point_" + i).transform;
             myTrackPoint[i].gameObject.SetActive(false);
@@ -1021,7 +1022,7 @@ public class sFlightRadar : MonoBehaviour {
                     myPlane.Call = myOnePlanePars.callsign; // Позывной
                     myPlane.Icao = myOnePlanePars.icao24; // HEX код ICAO (ADS-B Mode-S код)
                     myPlane.Time = myStartProcTime; // Время последней порции данных
-                    myPlane.TargetTime = myStartProcTime + myLag; // Целевое время для полета к последней исзвестной точке.
+                    myPlane.TargetTime = myStartProcTime + myLag; // Целевое время для полета к последней известной точке.
                     myPlane.NeedNewBezier = true; // Требуется определить новые путевые точки для полета по Безье. Выполняется в Update().
 
                     // Высота в футах. На самом деле разборка должна быть более сложная, с учетом GAlt и AltT, а также, возможно, InHG
@@ -1229,7 +1230,12 @@ public class sFlightRadar : MonoBehaviour {
                     }
                     else
                     {
-                        myAllPlanesPars[myKey] = myOnePlanePars; // Обновим большую структуру в словаре myAllPlanesPars
+                        // Обновим большую структуру в словаре myAllPlanesPars
+                        myAllPlanesPars[myKey] = myOnePlanePars;
+
+                        // Обновим малую структуру в словаре myPlaneVis
+
+                        // Сначала возьмем сохраненные ранее параметры
                         myPlane.GO = myPlaneVis[myKey].GO; // Указатель на Game Object
                         myPlane.Banner1 = myPlaneVis[myKey].Banner1;
                         myPlane.Banner1Call = myPlaneVis[myKey].Banner1Call;
@@ -1241,7 +1247,11 @@ public class sFlightRadar : MonoBehaviour {
                         myPlane.Model = myPlaneVis[myKey].Model;
                         myPlane.TrackPoints = myPlaneVis[myKey].TrackPoints;
                         myPlane.StartBezier = myPlaneVis[myKey].StartBezier;
-                        myPlaneVis[myKey] = myPlane; // Обновим малую структуру в словаре myPlaneVis
+                        myPlane.TrackTime = myPlaneVis[myKey].TrackTime;
+                        myPlane.PrevTargetTime = myPlaneVis[myKey].PrevTargetTime;
+
+                        myPlaneVis[myKey] = myPlane; // А вот теперь обновим малую структуру в словаре myPlaneVis
+
                         // Пополним историю самолета
                         // Извлечем из словаря структуру с историей
                         myOnePlaneHist = myPlanesHistory[myKey];
@@ -1435,8 +1445,8 @@ public class sFlightRadar : MonoBehaviour {
                     myPlane.GO = myNewPlane.gameObject;
 
                     // Указатели путевых точек
-                    Transform[] myTP = new Transform[4];
-                    for (int j = 0; j < 4; j++)
+                    Transform[] myTP = new Transform[5];
+                    for (int j = 0; j < 5; j++)
                     {
                         myTP[j] = Instantiate(myTrackPoint[j]);
                         myTP[j].name = myKeys[i] + "_Point_" + j;
@@ -1578,11 +1588,6 @@ public class sFlightRadar : MonoBehaviour {
                     myPlane.GO.transform.position = myPlane.Position;
                     myPlane.GO.transform.eulerAngles = myPlane.Euler;
 
-                    //// Первая путевая точка для полета по Безье
-                    //myPlane.StartBezier = myPlane.Position;
-                    //myPlane.GetStartBezier = false;
-                    //MyLog(myKeys[i], "ProcData", "%%% myFuncProcData(): ключ = " + myKeys[i] + " Новый самолет. Первая путевая точка для полета по Безье = " + myPlane.StartBezier);
-
                     // Уточним малую структуру в словаре
                     myPlaneVis[myKeys[i]] = myPlane;
                 }
@@ -1647,7 +1652,7 @@ public class sFlightRadar : MonoBehaviour {
                     }
                     Destroy(myPlane.GO);
                     // Указатели путевых точек
-                    for (int j = 0; j < 4; j++)
+                    for (int j = 0; j < 5; j++)
                     {
                         Destroy(myPlane.TrackPoints[j].gameObject);
                     }
@@ -1680,8 +1685,7 @@ public class sFlightRadar : MonoBehaviour {
                         mySlowPlanes.Add(myKeys[i], false); // Добавим самолет в словарь медленных
                         mySlowPlanesCount = mySlowPlanes.Count; // Поправим счетчик медленных самолетов
                         myPlane.GO.SetActive(false); // Прячем самолет
-                                                     // Указатели путевых точек
-                        for (int j = 0; j < 4; j++)
+                        for (int j = 0; j < 5; j++) // Указатели путевых точек
                         {
                             myPlane.TrackPoints[j].gameObject.SetActive(false);
                         }
@@ -1694,7 +1698,7 @@ public class sFlightRadar : MonoBehaviour {
                         mySlowPlanesCount = mySlowPlanes.Count; // Поправим счетчик медленных самолетов
                         myPlane.GO.SetActive(true); // Показываем самолет
                                                     // Указатели путевых точек
-                        for (int j = 0; j < 4; j++)
+                        for (int j = 0; j < 5; j++)
                         {
                             myPlane.TrackPoints[j].gameObject.SetActive(true);
                         }
@@ -1896,8 +1900,6 @@ public class sFlightRadar : MonoBehaviour {
         {
             // Текущее время сеанса
             long myCurTime = myStopWatch.ElapsedMilliseconds - myStartTime;
-            // Время, оставшееся до момента, в котором мы собираемся привести самолет в очередную точку траектории
-            //long myLeftToTargetTime = myStartProcTime + myLag - myCurTime;
 
             // Отладка
             myFrameCount++; //
@@ -1940,6 +1942,10 @@ public class sFlightRadar : MonoBehaviour {
                     Vector3 myNewPos;
                     Vector3 myEu = myPlane.GO.transform.eulerAngles;
                     Vector3 myNewEu;
+
+                    float myDerivative = 0.0f; // Производная от функции расчета положения по Безье
+                    float myDerivative2 = 0.0f;
+
                     if (myLeftToTargetTime > 0)
                     {
                         // Расчет новой точки на траектории
@@ -1951,16 +1957,36 @@ public class sFlightRadar : MonoBehaviour {
                         }
                         else
                         {
+                            // Нормированное время (доля времени до прихода в конечную точку, меняется от 0 до 1)
+                            float myTim;
+                            if (myPlane.TrackTime != 0)
+                            {
+                                myTim = 1.0f - (float)(myPlane.PrevTargetTime - myCurTime) / myPlane.TrackTime;
+                            }
+                            else
+                            {
+                                myTim = 1.0f - (float)(myPlane.PrevTargetTime - myCurTime) / myLag;
+                            }
+
+                            //MyLog(myKey + "_Data", "Frame =\t" + myFrameCount + "\tmyLeftToTargetTime =\t" + myLeftToTargetTime + "\tmyPlane.TrackTime =\t" + myPlane.TrackTime + "\tTim =\t" + myTim, false);
+
                             if (myPlane.NeedNewBezier)
                             {
-                                MyLog(myKey + "_Data", "===================== Frame=" + myFrameCount + " Новая первая путевая точка для полета по Безье = " + myPlane.StartBezier);
+                                MyLog(myKey + "_Data", "===================== Frame=" + myFrameCount + " Новая четверка путевых точек для полета по Безье");
+
+                                // Вычислим производные по нормированному времени в текущей точке для кривой, построенной по старым путевым точкам
+                                float dX0 = myFuncDeriv_t(myPlane, myTim, 0);
+                                float dZ0 = myFuncDeriv_t(myPlane, myTim, 2);
+                                MyLog(myKey + "_Data", "Tim =\t" + myTim + "\tdX0 =\t" + dX0 + "\tdZ0 =\t" + dZ0 + "\tdX0/dZ0 =\t" + dX0/dZ0, false);
+
                                 myPlane.StartBezier = myPos;
+                                myPlane.PrevTargetTime = myPlane.TargetTime;
                                 myPlane.TargetTime = myStartProcTime + myLag;
                                 myPlane.TrackTime = myPlane.TargetTime + myStartTime - myStopWatch.ElapsedMilliseconds;
                                 myLeftToTargetTime = myPlane.TrackTime;
+                                myTim = 0.0f;
                                 myPlane.NeedNewBezier = false;
                                 myPlaneVis[myKey] = myPlane; // Уточним малую структуру в словаре
-
 
                                 MyLog(myKey + "_Data", "Frame\tCurTime\tRealTime\tStartProcTime\tTargetTime\tTrackTime", false);
                                 String myLine = myFrameCount + "\t" + myCurTime + "\t" + (myStopWatch.ElapsedMilliseconds - myStartTime) + "\t" + 
@@ -1968,29 +1994,53 @@ public class sFlightRadar : MonoBehaviour {
                                 MyLog(myKey + "_Data", myLine, false);
                                 //MyLog(myKey + "_Data", "Положение самолета:" + myPlane.GO.transform.position + " myPos = " + myPos + " myPlane.StartBezier = " + myPlane.StartBezier + " myPlaneVis[myKey].StartBezier = " + myPlaneVis[myKey].StartBezier, false);
 
+
                                 // Расставим указатели путевых точек для полета по Безье
+
+                                // Первая путевая точка
                                 myPlane.TrackPoints[0].position = myPlane.StartBezier;
-                                for (int j = 0; j < 3; j++)
+
+                                // Вторая, третья и четвертая путевые точки
+                                for (int j = 1; j < 4; j++)
                                 {
-                                    myPlane.TrackPoints[j + 1].position = myOnePlaneHist.Position[myPlaneHistCount - 3 + j];
+                                    myPlane.TrackPoints[j].position = myOnePlaneHist.Position[myPlaneHistCount - 4 + j];
                                 }
+
+                                // Уточняем вторую путевую точка: X1,Z1. Найдем ее координаты из условия краевой задачи: кривая не должна иметь излома
+                                // (равенство производных для кривых, построенных по старым и по новым путевым точкам)
+                                // ( -(1 - t)^2 * X0 + (1 - 4*t + 3*t^2) * X1 + t * (2 - 3*t) * X2 + t^2 * X3) * 3 = dX0
+                                // X1 = (dX0/3 + (1 - t)^2 * X0 - t * (2 - 3*t) * X2 - t^2 * X3) / (1 - 4*t + 3*t^2), при t=0
+                                // X1 = dX0/3 + X0
+                                Vector3 myPoint2 = myPlane.TrackPoints[1].position;
+
+                                myPoint2.x = (dX0 / 3.0f) + myPlane.TrackPoints[0].position.x;
+                                myPoint2.z = (dZ0 / 3.0f) + myPlane.TrackPoints[0].position.z;
+                                myPlane.TrackPoints[4].position = myPlane.TrackPoints[1].position;
+                                myPlane.TrackPoints[1].position = myPoint2;
+
                                 MyLog(myKey + "_Data", "Точка\tPosX\tPosY\tPosZ", false);
                                 for (int j = 0; j < 4; j++)
                                 {
                                     myLine = j + "\t" + myPlane.TrackPoints[j].position.x + "\t" + myPlane.TrackPoints[j].position.y + "\t" + myPlane.TrackPoints[j].position.z;
                                     MyLog(myKey + "_Data", myLine, false);
                                 }
+                                MyLog(myKey + "_Data", "2+\t" + myPoint2.x + "\t" + myPoint2.y + "\t" + myPoint2.z, false);
+
+                                MyLog(myKey + "_Data", "Frame\tTim\tPosX\tPosY\tPosZ\tYaw\tDelZ/DelX\tdZ/dX\tdZ/dX-2\tInter", false);
                             }
 
-                            float myTim = 1.0f - (float)myLeftToTargetTime / myPlane.TrackTime;
+                            // Положение по Безье
                             myNewPos = (1.0f - myTim) * (1.0f - myTim) * (1.0f - myTim) * myPlane.TrackPoints[0].position
                                 + 3.0f * myTim * (1.0f - myTim) * (1.0f - myTim) * myPlane.TrackPoints[1].position
                                 + 3.0f * myTim * myTim * (1.0f - myTim) * myPlane.TrackPoints[2].position
                                 + myTim * myTim * myTim * myPlane.TrackPoints[3].position;
+                            // Производная от положения по Безье (dX/dZ)
+                            myDerivative = myFuncDeriv_t(myPlane, myTim, 0) / myFuncDeriv_t(myPlane, myTim, 2);
+                            myDerivative2 = myFuncDeriv_t2(myPlane, myTim, 0) / myFuncDeriv_t2(myPlane, myTim, 2);
 
-                            MyLog(myKey + "_Data", "myTim = " + myTim + " myLeftToTargetTime = " + myLeftToTargetTime + " myPlane.TrackTime = " + myPlane.TrackTime);
+                            //MyLog(myKey + "_Data", "myTim = " + myTim + " myLeftToTargetTime = " + myLeftToTargetTime + " myPlane.TrackTime = " + myPlane.TrackTime + " myDerivative = " + myDerivative);
                         }
-                        MyLog(myKey + "_Data", "myPlane.position = " + myPlane.GO.transform.position);
+                        //MyLog(myKey + "_Data", "myPlane.position = " + myPlane.GO.transform.position);
 
 
 
@@ -2039,31 +2089,38 @@ public class sFlightRadar : MonoBehaviour {
 
                         if (myPlaneHistCount >= 4) // если в истории больше четырех точек, то угол рыскания заменим, исходя из траектории по Безье
                         {
+                            string myInter = "Linear";
                             myNewEu = myPlane.GO.transform.eulerAngles;
                             float myDeltaX = myNewPos.x - myPos.x;
                             float myDeltaZ = myNewPos.z - myPos.z;
-                            if (myDeltaX < 0.001f && myDeltaZ < 0.001f)
+                            if (Math.Abs(myDeltaX) < 0.001f && Math.Abs(myDeltaZ) < 0.001f)
                             {
-                                myNewEu.y = myPlane.GO.transform.eulerAngles.y;
+                                // Перемещение слишком мало, ничего не делаем
                             }
                             else if (myDeltaZ == 0.0f)
                             {
                                 myNewEu.y = 90.0f * Mathf.Sign(myDeltaX);
+                                myInter = "DeltaZ=0";
                             }
                             else if (myDeltaX == 0.0f)
                             {
                                 myNewEu.y = 90.0f - 90.0f * Mathf.Sign(myDeltaZ);
+                                myInter = "DeltaX=0";
                             }
                             else
                             {
-                                myNewEu.y = Mathf.Rad2Deg * (Mathf.Atan(myDeltaX / myDeltaZ));
+                                //myNewEu.y = Mathf.Rad2Deg * (Mathf.Atan(myDeltaX / myDeltaZ));
+                                myNewEu.y = Mathf.Rad2Deg * (Mathf.Atan(myDerivative));
                                 if (Mathf.Sign(myDeltaZ) == -1)
                                 {
                                     myNewEu.y = myNewEu.y + 180 * Mathf.Sign(myDeltaX);
                                 }
+                                myInter = "Bezier";
                             }
                             myPlane.GO.transform.eulerAngles = myNewEu;
-                            MyLog(myKey + "_Data", "myDeltaX = " + myDeltaX + " myDeltaZ = " + myDeltaZ + " Yaw = " + myNewEu.y);
+                            //MyLog(myKey + "_Data", "myDeltaX = " + myDeltaX + " myDeltaZ = " + myDeltaZ + " Yaw = " + myNewEu.y);
+                            MyLog(myKey + "_Data", myFrameCount + "\t" + (1.0f - (float)myLeftToTargetTime / myPlane.TrackTime) + "\t" + myPlane.GO.transform.position.x + "\t" + myPlane.GO.transform.position.y + "\t" + myPlane.GO.transform.position.z
+                                + "\t" + myNewEu.y + "\t" + (myDeltaX / myDeltaZ) + "\t" + myDerivative + "\t" + myDerivative2 + "\t" + myInter, false);
                         }
                     }
 
@@ -2184,4 +2241,27 @@ public class sFlightRadar : MonoBehaviour {
         myBanner2.gameObject.SetActive(true);
 
     }
+
+
+    float myFuncDeriv_t(MyPlaneVisual myPlane, float myTim, int myIndex)
+    {
+        float myDeriv;
+        myDeriv = (-(1.0f - myTim) * (1.0f - myTim) * myPlane.TrackPoints[0].position[myIndex]
+            + (1.0f - 4.0f * myTim + 3.0f * myTim * myTim) * myPlane.TrackPoints[1].position[myIndex]
+            + (2.0f * myTim - 3.0f * myTim * myTim) * myPlane.TrackPoints[2].position[myIndex]
+            + myTim * myTim * myPlane.TrackPoints[3].position[myIndex]) * 3.0f;
+        return myDeriv;
+    }
+
+    float myFuncDeriv_t2(MyPlaneVisual myPlane, float myTim, int myIndex)
+    {
+        float myDeriv;
+        myDeriv = (-(1.0f - myTim) * (1.0f - myTim) * myPlane.TrackPoints[0].position[myIndex]
+            + (1.0f - 4.0f * myTim + 3.0f * myTim * myTim) * myPlane.TrackPoints[4].position[myIndex]
+            + (2.0f * myTim - 3.0f * myTim * myTim) * myPlane.TrackPoints[2].position[myIndex]
+            + myTim * myTim * myPlane.TrackPoints[3].position[myIndex]) * 3.0f;
+        return myDeriv;
+    }
+
+
 }
