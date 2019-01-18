@@ -341,7 +341,6 @@ public class sFlightRadar : MonoBehaviour {
     // Use this for initialization
     void Start () {
 
-
         // ********************** Запись в файл отладочных данных ********************************************
 
         // Подготовим файл для записи
@@ -1943,8 +1942,19 @@ public class sFlightRadar : MonoBehaviour {
                     Vector3 myEu = myPlane.GO.transform.eulerAngles;
                     Vector3 myNewEu;
 
-                    float myDerivative = 0.0f; // Производная от функции расчета положения по Безье
-                    float myDerivative2 = 0.0f;
+                    // Производная от функции расчета положения по Безье (dX/dZ)
+                    float myDerivative = 0.0f;
+                    // Производные координат по времени для положения по Безье (dX/dt и dZ/dt)
+                    float myDerX = 0.0f;
+                    float myDerZ = 0.0f;
+                    // Вторая производная от функции расчета положения по Безье (d2X/dZ2)
+                    float myDer2 = 0.0f;
+                    // Вторые производные координат от положения по Безье (d2X/dt2 и d2Z/dt2)
+                    float myDer2Х = 0.0f;
+                    float myDer2Z = 0.0f;
+
+                    // Радиус кривизны траектории по Безье
+                    float myCurvRadius = Mathf.Infinity;
 
                     if (myLeftToTargetTime > 0)
                     {
@@ -1974,10 +1984,46 @@ public class sFlightRadar : MonoBehaviour {
                             {
                                 MyLog(myKey + "_Data", "===================== Frame=" + myFrameCount + " Новая четверка путевых точек для полета по Безье");
 
-                                // Вычислим производные по нормированному времени в текущей точке для кривой, построенной по старым путевым точкам
-                                float dX0 = myFuncDeriv_t(myPlane, myTim, 0);
-                                float dZ0 = myFuncDeriv_t(myPlane, myTim, 2);
-                                MyLog(myKey + "_Data", "Tim =\t" + myTim + "\tdX0 =\t" + dX0 + "\tdZ0 =\t" + dZ0 + "\tdX0/dZ0 =\t" + dX0/dZ0, false);
+                                // Вычислим первую и вторую производные в текущей точке для кривой, построенной по старым путевым точкам
+
+                                // Первые производные для X и Z по нормированному времени
+                                float dX0 = myFuncDeriv_t(myKey, myPlane, myTim, 0);
+                                float dZ0 = myFuncDeriv_t(myKey, myPlane, myTim, 2);
+                                // Первая производная X по Z в текущей точке
+                                float D1 = 0.0f;
+                                if (dZ0 != 0.0f) // Если dZ0 не равен нулю
+                                {
+                                    D1 = dX0 / dZ0;
+                                }
+                                else if (dX0 > 0.0f) // Если dZ0 равен нулю, а dX0 больше нуля
+                                {
+                                    D1 = Mathf.Infinity;
+                                }
+                                else if (dX0 < 0.0f) // Если dZ0 равен нулю, а dX0 меньше нуля. Если dX0 тоже равен нулю, то ничего не делаем: D1 будет равен нулю по определению переменной
+                                {
+                                    D1 = Mathf.NegativeInfinity;
+                                }
+
+                                // Вторые производные для X и Z по нормированному времени
+                                float d2X0 = myFuncDeriv2_t(myPlane, myTim, 0);
+                                float d2Z0 = myFuncDeriv2_t(myPlane, myTim, 2);
+                                // Вторая производная X по Z в текущей точке
+                                float D2 = 0.0f;
+                                float myNumerator = (dZ0 * d2X0 - d2Z0 * dX0);
+                                if (dZ0 != 0.0f) // Если dZ0 не равен нулю
+                                {
+                                    D2 = myNumerator / (dZ0 * dZ0 * dZ0);
+                                }
+                                else if (myNumerator > 0.0f) // Если dZ0 равен нулю, а числитель больше нуля
+                                {
+                                    D2 = Mathf.Infinity;
+                                }
+                                else if (myNumerator < 0.0f) // Если dZ0 равен нулю, а числитель меньше нуля. Если числитель тоже равен нулю, то ничего не делаем: D2 будет равен нулю по определению переменной
+                                {
+                                    D2 = Mathf.NegativeInfinity;
+                                }
+
+                                MyLog(myKey + "_Data", "Tim =\t" + myTim + "\tdX0 =\t" + dX0 + "\tdZ0 =\t" + dZ0 + "\tD1 =\t" + D1 + "\td2X0 =\t" + d2X0 + "\td2Z0 =\t" + d2Z0 + "\tD2 =\t" + D2, false);
 
                                 myPlane.StartBezier = myPos;
                                 myPlane.PrevTargetTime = myPlane.TargetTime;
@@ -2013,20 +2059,30 @@ public class sFlightRadar : MonoBehaviour {
                                 // X1 = dX0/3 + X0
                                 Vector3 myPoint2 = myPlane.TrackPoints[1].position;
 
-                                myPoint2.x = (dX0 / 3.0f) + myPlane.TrackPoints[0].position.x;
-                                myPoint2.z = (dZ0 / 3.0f) + myPlane.TrackPoints[0].position.z;
+                                //myPoint2.x = (dX0 / 3.0f) + myPlane.TrackPoints[0].position.x;
+                                //myPoint2.z = (dZ0 / 3.0f) + myPlane.TrackPoints[0].position.z;
+
+                                //myPlane.TrackPoints[1].position = myPoint2;
+
+                                // Уточняем вторую путевую точка: X1,Z1. Найдем ее координаты из условия краевой задачи:
+                                // 1. Кривая не должна иметь излома (равенство производных для кривых, построенных по старым и по новым путевым точкам)
+                                // 2. Кривая не должна менять радиус кривизны (равенство вторых производных для кривых, построенных по старым и по новым путевым точкам)
+                                myPoint2.z = (myPlane.TrackPoints[0].position.z * (D2 - 2 * D1) + D2 * myPlane.TrackPoints[2].position.z + myPlane.TrackPoints[0].position.x - myPlane.TrackPoints[2].position.x) / (D2 - D1) / 2;
+                                myPoint2.x = D1 * (myPoint2.z - myPlane.TrackPoints[0].position.z) + myPlane.TrackPoints[0].position.x;
+
                                 myPlane.TrackPoints[4].position = myPlane.TrackPoints[1].position;
                                 myPlane.TrackPoints[1].position = myPoint2;
 
+
                                 MyLog(myKey + "_Data", "Точка\tPosX\tPosY\tPosZ", false);
-                                for (int j = 0; j < 4; j++)
+                                for (int j = 0; j < 5; j++)
                                 {
                                     myLine = j + "\t" + myPlane.TrackPoints[j].position.x + "\t" + myPlane.TrackPoints[j].position.y + "\t" + myPlane.TrackPoints[j].position.z;
                                     MyLog(myKey + "_Data", myLine, false);
                                 }
-                                MyLog(myKey + "_Data", "2+\t" + myPoint2.x + "\t" + myPoint2.y + "\t" + myPoint2.z, false);
+                                //MyLog(myKey + "_Data", "2+\t" + myPoint2.x + "\t" + myPoint2.y + "\t" + myPoint2.z, false);
 
-                                MyLog(myKey + "_Data", "Frame\tTim\tPosX\tPosY\tPosZ\tYaw\tDelZ/DelX\tdZ/dX\tdZ/dX-2\tInter", false);
+                                MyLog(myKey + "_Data", "Frame\tTim\tPosX\tPosY\tPosZ\tYaw\tdX/dt\tdZ/dt\tdX/dZ\td2X/dt2\td2Z/dt2\td2X/dZ2\tRadius\tRoll\tInter", false);
                             }
 
                             // Положение по Безье
@@ -2034,9 +2090,49 @@ public class sFlightRadar : MonoBehaviour {
                                 + 3.0f * myTim * (1.0f - myTim) * (1.0f - myTim) * myPlane.TrackPoints[1].position
                                 + 3.0f * myTim * myTim * (1.0f - myTim) * myPlane.TrackPoints[2].position
                                 + myTim * myTim * myTim * myPlane.TrackPoints[3].position;
-                            // Производная от положения по Безье (dX/dZ)
-                            myDerivative = myFuncDeriv_t(myPlane, myTim, 0) / myFuncDeriv_t(myPlane, myTim, 2);
-                            myDerivative2 = myFuncDeriv_t2(myPlane, myTim, 0) / myFuncDeriv_t2(myPlane, myTim, 2);
+
+                            // Производные координат от положения по Безье (dX/dt и dZ/dt)
+                            myDerX = myFuncDeriv_t(myKey, myPlane, myTim, 0);
+                            myDerZ = myFuncDeriv_t(myKey, myPlane, myTim, 2);
+
+                            // Производная от положения по Безье (dX/dZ).
+                            // Берем dX/dZ, а не dZ/dX, так как курсовой угол отсчитывается от оси Z (направление на север)
+
+                            if (myDerZ != 0) // Если myDerZ не равен нулю
+                            {
+                                myDerivative = myDerX / myDerZ;
+                            }
+                            else if (myDerX > 0.0f) // Если myDerZ равен нулю, а myDerX больше нуля
+                            {
+                                myDerivative = Mathf.Infinity;
+                            }
+                            else if (myDerX < 0.0f) // Если myDerZ равен нулю, а myDerX меньше нуля. Если myDerX тоже равен нулю, то ничего не делаем: myDerivative будет равен нулю по определению переменной
+                            {
+                                myDerivative = Mathf.NegativeInfinity;
+                            }
+
+                            // Вторые производные координат от положения по Безье (d2X/dt2 и d2Z/dt2)
+                            myDer2Х = myFuncDeriv2_t(myPlane, myTim, 0);
+                            myDer2Z = myFuncDeriv2_t(myPlane, myTim, 2);
+
+                            // Вторая производная от функции расчета положения по Безье (d2X/dZ2)
+                            float myNumerat = (myDerZ * myDer2Х - myDer2Z * myDerX);
+                            if (myDerZ != 0.0f) // Если myDerZ не равен нулю
+                            {
+                                myDer2 = myNumerat / (myDerZ * myDerZ * myDerZ);
+                            }
+                            else if (myNumerat > 0.0f) // Если myDerZ равен нулю, а числитель больше нуля
+                            {
+                                myDer2 = Mathf.Infinity;
+                            }
+                            else if (myNumerat < 0.0f) // Если myDerZ равен нулю, а числитель меньше нуля. Если числитель тоже равен нулю, то ничего не делаем: myDer2 будет равен нулю по определению переменной
+                            {
+                                myDer2 = Mathf.NegativeInfinity;
+                            }
+
+
+                            // Радиус кривизны траектории по Безье
+                            myCurvRadius = Mathf.Pow((myDerX * myDerX + myDerZ * myDerZ), 1.5f) / (myDerX * myDer2Z - myDer2Х * myDerZ);
 
                             //MyLog(myKey + "_Data", "myTim = " + myTim + " myLeftToTargetTime = " + myLeftToTargetTime + " myPlane.TrackTime = " + myPlane.TrackTime + " myDerivative = " + myDerivative);
                         }
@@ -2087,8 +2183,9 @@ public class sFlightRadar : MonoBehaviour {
                         //    MyLog("Update", "Plane=" + myKey + " OldEu=" + myEu.y + " TargetEu=" + myPlane.Euler.y + " DeltaEu=" + myDeltaY + " DeltaEuNorm=" + myDeltaEu.y + " NewEu=" + myPlane.GO.transform.eulerAngles.y);
                         //}
 
-                        if (myPlaneHistCount >= 4) // если в истории больше четырех точек, то угол рыскания заменим, исходя из траектории по Безье
+                        if (myPlaneHistCount >= 4) // если в истории больше четырех точек, то угол рысканья и угол крена заменим, исходя из траектории по Безье
                         {
+                            // Рысканье (y)
                             string myInter = "Linear";
                             myNewEu = myPlane.GO.transform.eulerAngles;
                             float myDeltaX = myNewPos.x - myPos.x;
@@ -2117,10 +2214,23 @@ public class sFlightRadar : MonoBehaviour {
                                 }
                                 myInter = "Bezier";
                             }
+
+                            // Крен (z)
+                            if(myCurvRadius > 0.0f)
+                            {
+                                myNewEu.z = 90.0f - Mathf.Rad2Deg * Mathf.Atan(myCurvRadius / 1000.0f);
+                            }
+                            else
+                            {
+                                myNewEu.z = -90.0f - Mathf.Rad2Deg * Mathf.Atan(myCurvRadius / 1000.0f);
+                            }
+                            myNewEu.z = Mathf.Clamp(myNewEu.z, -45.0f, 45.0f);
+
                             myPlane.GO.transform.eulerAngles = myNewEu;
-                            //MyLog(myKey + "_Data", "myDeltaX = " + myDeltaX + " myDeltaZ = " + myDeltaZ + " Yaw = " + myNewEu.y);
+                            //MyLog(myKey + "_Data", "Frame\tTim\tPosX\tPosY\tPosZ\tYaw\tDelZ/DelX\tdZ/dX\tInter", false);
                             MyLog(myKey + "_Data", myFrameCount + "\t" + (1.0f - (float)myLeftToTargetTime / myPlane.TrackTime) + "\t" + myPlane.GO.transform.position.x + "\t" + myPlane.GO.transform.position.y + "\t" + myPlane.GO.transform.position.z
-                                + "\t" + myNewEu.y + "\t" + (myDeltaX / myDeltaZ) + "\t" + myDerivative + "\t" + myDerivative2 + "\t" + myInter, false);
+                                + "\t" + myNewEu.y + "\t" + myDerX + "\t" + myDerZ + "\t" + myDerivative + "\t" + myDer2Х + "\t" + myDer2Z + "\t" + myDer2
+                                + "\t" + myCurvRadius + "\t" + myNewEu.z + "\t" + myInter, false);
                         }
                     }
 
@@ -2243,24 +2353,27 @@ public class sFlightRadar : MonoBehaviour {
     }
 
 
-    float myFuncDeriv_t(MyPlaneVisual myPlane, float myTim, int myIndex)
+    float myFuncDeriv_t(String myKey, MyPlaneVisual myPlane, float myTim, int myIndex)
     {
-        float myDeriv;
-        myDeriv = (-(1.0f - myTim) * (1.0f - myTim) * myPlane.TrackPoints[0].position[myIndex]
+        float myDeriv = (-(1.0f - myTim) * (1.0f - myTim) * myPlane.TrackPoints[0].position[myIndex]
             + (1.0f - 4.0f * myTim + 3.0f * myTim * myTim) * myPlane.TrackPoints[1].position[myIndex]
             + (2.0f * myTim - 3.0f * myTim * myTim) * myPlane.TrackPoints[2].position[myIndex]
             + myTim * myTim * myPlane.TrackPoints[3].position[myIndex]) * 3.0f;
+        MyLog(myKey + "_Data", "myIndex=\t" + myIndex + "\tmyTim=\t" + myTim +
+            "\tP0=\t" + myPlane.TrackPoints[0].position[myIndex] + "\tK0=\t" + -(1.0f - myTim) * (1.0f - myTim) + "\tS0=\t" + -(1.0f - myTim) * (1.0f - myTim) * myPlane.TrackPoints[0].position[myIndex] +
+            "\tP1=\t" + myPlane.TrackPoints[1].position[myIndex] + "\tK1=\t" + (1.0f - 4.0f * myTim + 3.0f * myTim * myTim) + "\tS1=\t" + (1.0f - 4.0f * myTim + 3.0f * myTim * myTim) * myPlane.TrackPoints[1].position[myIndex] +
+            "\tP2=\t" + myPlane.TrackPoints[2].position[myIndex] + "\tK2=\t" + (2.0f * myTim - 3.0f * myTim * myTim) + "\tS2=\t" + (2.0f * myTim - 3.0f * myTim * myTim) * myPlane.TrackPoints[2].position[myIndex] +
+            "\tP3=\t" + myPlane.TrackPoints[3].position[myIndex] + "\tK3=\t" + myTim * myTim + "\tS3=\t" + myTim * myTim * myPlane.TrackPoints[3].position[myIndex], false);
         return myDeriv;
     }
 
-    float myFuncDeriv_t2(MyPlaneVisual myPlane, float myTim, int myIndex)
+    float myFuncDeriv2_t(MyPlaneVisual myPlane, float myTim, int myIndex)
     {
-        float myDeriv;
-        myDeriv = (-(1.0f - myTim) * (1.0f - myTim) * myPlane.TrackPoints[0].position[myIndex]
-            + (1.0f - 4.0f * myTim + 3.0f * myTim * myTim) * myPlane.TrackPoints[4].position[myIndex]
-            + (2.0f * myTim - 3.0f * myTim * myTim) * myPlane.TrackPoints[2].position[myIndex]
-            + myTim * myTim * myPlane.TrackPoints[3].position[myIndex]) * 3.0f;
-        return myDeriv;
+        float myDeriv2 = ((1.0f - myTim) * myPlane.TrackPoints[0].position[myIndex]
+            - (2.0f - myTim * 3.0f) * myPlane.TrackPoints[1].position[myIndex]
+            + (1.0f - myTim * 3.0f) * myPlane.TrackPoints[2].position[myIndex]
+            + myTim * myPlane.TrackPoints[3].position[myIndex]) * 6.0f;
+        return myDeriv2;
     }
 
 
