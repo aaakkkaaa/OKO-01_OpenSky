@@ -2126,7 +2126,7 @@ public class sFlightRadar : MonoBehaviour {
 
                                 // Целевой угол крена в точке 0.25
                                 float myTargetRoll = Mathf.Rad2Deg * Mathf.Atan(1000.0f * myTargetCurvature);
-                                myTargetRoll = Mathf.Clamp(myTargetRoll, -45.0f, 45.0f);
+                                myTargetRoll = Mathf.Clamp(myTargetRoll, -30.0f, 30.0f);
 
                                 // Присвоим этот угол крена объекту второй путевой точки
                                 Vector3 myTargeEu = myPlane.TrackPoints[1].eulerAngles;
@@ -2284,25 +2284,11 @@ public class sFlightRadar : MonoBehaviour {
                             }
 
                             // Крен (z)
-                            if(myCurvRadius != 0.0f)
-                            {
-                                myNewEu.z = Mathf.Rad2Deg * Mathf.Atan(1000.0f / myCurvRadius);
-                            }
-                            else
-                            {
-                                myNewEu.z = 45.0f;
-                            }
-                            myNewEu.z = Mathf.Clamp(myNewEu.z, -45.0f, 45.0f);
-
-                            // Возьмем углы крена 
-                            //float mySourceRoll = myPlane.TrackPoints[0].eulerAngles.z;
-                            //float myTargetRoll = myPlane.TrackPoints[1].eulerAngles.z;
-
-
-
+                            // Линейная интерполяция от угла крена в первой точке Безье до угла крена во второй точке
+                            // Время ~1/4 общего времени движения по текущему отрезку кривой Безье
                             myNewEu.z = Mathf.LerpAngle(myPlane.TrackPoints[0].eulerAngles.z, myPlane.TrackPoints[1].eulerAngles.z, myTim * 4);
 
-
+                            // Применим угол к модели самолета
                             myPlane.GO.transform.eulerAngles = myNewEu;
 
                             // Колонки данных под заголовком
