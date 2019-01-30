@@ -1111,11 +1111,11 @@ public class sFlightRadar : MonoBehaviour {
                             //    myPlane.Position = myPredictedPosition;
                             //    MyLog(myKey, "ProcData", "=== myFuncThread(): ключ = " + myKey + " Данные полета считаем недостоверными. Угол между направлением на прогноз и полученной точкой (град.) = " + myAngle + ". Летим по прогнозу. myPlane.Position = " + myPlane.Position);
                             //}
-                            else if ((myOnePlaneHist.PredictionReason[k-1] == "BackData") && (myOnePlaneHist.PredictionReason[k - 2] == "BackData") || (myOnePlaneHist.PredictionReason[k - 1] == "Frozen") && (myOnePlaneHist.PredictionReason[k - 2] == "Frozen"))
+                            else if ((myOnePlaneHist.PredictionReason[k-1] == "BackData") && (myOnePlaneHist.PredictionReason[k - 2] == "BackData") && (myOnePlaneHist.PredictionReason[k - 3] == "BackData") || (myOnePlaneHist.PredictionReason[k - 1] == "Frozen") && (myOnePlaneHist.PredictionReason[k - 2] == "Frozen") && (myOnePlaneHist.PredictionReason[k - 3] == "Frozen"))
                             {
                                 myPlane.Position = myResponsedPosition;
                                 myPlane.BadPosCounter = 0;
-                                MyLog(myKey, "ProcData", "=== myFuncThread(): ключ = " + myKey + " Две предыдущие точки были BackData или Frozen. Данные полета считаем достоверными, летим по ним. myPlane.Position = " + myPlane.Position);
+                                MyLog(myKey, "ProcData", "=== myFuncThread(): ключ = " + myKey + " Три предыдущие точки были BackData или Frozen. Данные полета считаем достоверными, летим по ним. myPlane.Position = " + myPlane.Position);
                             }
                             else if (myOnePlaneHist.BadPosCounter[k - 1] >= 3)
                             {
